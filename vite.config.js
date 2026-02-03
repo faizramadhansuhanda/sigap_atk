@@ -12,6 +12,19 @@ export default defineConfig({
         tailwindcss(),
         react(),
     ],
+    optimizeDeps: {
+        exclude: [
+            'alpinejs',
+            'tippy.js',
+            'shiki/core',
+            'shiki/engine/javascript',
+            '@shikijs/langs/json',
+            '@shikijs/langs/php',
+            '@shikijs/langs/sql',
+            '@shikijs/themes/dark-plus',
+            '@shikijs/themes/light-plus',
+        ],
+    },
     server: {
         watch: {
             ignored: ['**/storage/framework/views/**'],

@@ -192,7 +192,18 @@ export default function Index({ authorized, dateRange, startDate, endDate, reque
                                                     ))}
                                                 </ul>
                                             </td>
-                                            <td className="py-3 px-3 text-slate-700">{request.notes}</td>
+                                            <td className="py-3 px-3 text-slate-700">
+                                                {request.notes || request.rejection_note ? (
+                                                    <div className="space-y-1">
+                                                        {request.notes && <p>{request.notes}</p>}
+                                                        {request.rejection_note && (
+                                                            <p className="text-red-600">Alasan penolakan: {request.rejection_note}</p>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    '-'
+                                                )}
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>

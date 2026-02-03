@@ -8,6 +8,10 @@ export default function PinModal({
     onConfirm,
     error,
     isProcessing,
+    showRejectionNote,
+    rejectionNote,
+    onRejectionNoteChange,
+    rejectionError,
 }) {
     if (!isOpen) {
         return null;
@@ -33,16 +37,33 @@ export default function PinModal({
                 </div>
 
                 <div className="mt-4 space-y-2">
-                    <label className="text-sm font-medium text-slate-700">Sandi Admin</label>
+                    <label className="text-sm font-medium text-slate-700">Sandi Admin (wajib)</label>
                     <input
                         type="password"
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-900 placeholder:text-slate-400"
                         value={pin}
                         onChange={(event) => onPinChange(event.target.value)}
-                        placeholder="Masukkan sandi admin"
+                        placeholder="Masukkan PIN admin"
                     />
+                    <p className="text-xs text-slate-500">Gunakan PIN khusus admin untuk melanjutkan.</p>
                     {error && <p className="text-sm text-red-600">{error}</p>}
                 </div>
+                {showRejectionNote && (
+                    <div className="mt-4 space-y-2">
+                        <label className="text-sm font-medium text-slate-700">Alasan Penolakan (wajib)</label>
+                        <textarea
+                            rows="3"
+                            className={`w-full rounded-lg border px-3 py-2 ${
+                                rejectionError ? 'border-red-400' : 'border-slate-300'
+                            } text-slate-900 placeholder:text-slate-400`}
+                            value={rejectionNote}
+                            onChange={(event) => onRejectionNoteChange(event.target.value)}
+                            placeholder="Tulis alasan penolakan"
+                        />
+                        <p className="text-xs text-slate-500">Alasan ini akan terlihat pada daftar permintaan.</p>
+                        {rejectionError && <p className="text-sm text-red-600">{rejectionError}</p>}
+                    </div>
+                )}
 
                 <div className="mt-6 flex items-center justify-end gap-2">
                     <button

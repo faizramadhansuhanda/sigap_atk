@@ -61,6 +61,7 @@ class ReportController extends Controller
                     : '-',
                 'request_date_raw' => $request->request_date?->format('Y-m-d'),
                 'notes' => $request->notes,
+                'rejection_note' => $request->rejection_note,
                 'status' => $request->status,
                 'status_label' => $this->getStatusLabel($request->status),
                 'items' => $request->items->map(fn ($item) => [

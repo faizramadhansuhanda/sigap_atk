@@ -20,6 +20,7 @@ class AtkRequestController extends Controller
             'requester_division' => $request->requester_division,
             'request_date' => $request->request_date?->format('Y-m-d'),
             'notes' => $request->notes,
+            'rejection_note' => $request->rejection_note,
             'status' => $request->status,
             'status_label' => $this->getStatusLabel($request->status),
             'status_group' => $this->getStatusGroup($request->status),
@@ -87,7 +88,14 @@ class AtkRequestController extends Controller
             return back()->with('error', 'Sandi admin tidak sesuai.');
         }
 
-        $atkRequest->update(['status' => 'disetujui']);
+        if ($atkRequest->status !== 'menunggu') {
+            return back()->with('error', 'Permintaan hanya dapat disetujui saat status menunggu.');
+        }
+
+        $atkRequest->update([
+            'status' => 'disetujui',
+            'rejection_note' => null,
+        ]);
 
         return back()->with('success', 'Permintaan berhasil disetujui.');
     }
@@ -98,7 +106,13 @@ class AtkRequestController extends Controller
             return back()->with('error', 'Sandi admin tidak sesuai.');
         }
 
-        $atkRequest->update(['status' => 'selesai']);
+        if (! in_array($atkRequest->status, ['disetujui', 'ditolak'], true)) {
+            return back()->with('error', 'Permintaan hanya dapat diselesaikan setelah disetujui atau ditolak.');
+        }
+
+        $atkRequest->update([
+            'status' => $atkRequest->status === 'ditolak' ? 'selesai_ditolak' : 'selesai',
+        ]);
 
         return back()->with('success', 'Permintaan berhasil diselesaikan.');
     }
@@ -109,7 +123,18 @@ class AtkRequestController extends Controller
             return back()->with('error', 'Sandi admin tidak sesuai.');
         }
 
-        $atkRequest->update(['status' => 'ditolak']);
+        $request->validate([
+            'rejection_note' => ['required', 'string', 'max:1000'],
+        ]);
+
+        if (! in_array($atkRequest->status, ['menunggu', 'disetujui'], true)) {
+            return back()->with('error', 'Permintaan hanya dapat ditolak saat status menunggu atau disetujui.');
+        }
+
+        $atkRequest->update([
+            'status' => 'ditolak',
+            'rejection_note' => $request->input('rejection_note'),
+        ]);
 
         return back()->with('success', 'Permintaan berhasil ditolak.');
     }
@@ -130,15 +155,20 @@ class AtkRequestController extends Controller
         $validated = $request->validate([
             'admin_password' => ['required', 'string'],
             'action' => ['required', 'string', 'in:approve,reject,complete,delete'],
+            'rejection_note' => ['nullable', 'string', 'max:1000'],
         ]);
 
         if (! $this->checkAdminPassword($request)) {
             return response()->json(['message' => 'Sandi admin tidak sesuai.'], 422);
         }
 
+        if ($validated['action'] === 'reject' && empty(trim((string) ($validated['rejection_note'] ?? '')))) {
+            return response()->json(['message' => 'Alasan penolakan wajib diisi.'], 422);
+        }
+
         return match ($validated['action']) {
             'approve' => $this->handleApprove($atkRequest),
-            'reject' => $this->handleReject($atkRequest),
+            'reject' => $this->handleReject($atkRequest, $validated['rejection_note'] ?? null),
             'complete' => $this->handleComplete($atkRequest),
             'delete' => $this->handleDelete($atkRequest),
         };
@@ -176,7 +206,7 @@ class AtkRequestController extends Controller
     {
         $requests = AtkRequest::with('items')->latest()->get();
         $rows = [
-            ['Nama Pemohon', 'Bagian/Divisi', 'Tanggal Permintaan', 'Status', 'Barang', 'Jumlah', 'Satuan', 'Catatan'],
+            ['Nama Pemohon', 'Bagian/Divisi', 'Tanggal', 'Status', 'Barang', 'Catatan'],
         ];
 
         foreach ($requests as $request) {
@@ -184,6 +214,18 @@ class AtkRequestController extends Controller
                 ? Carbon::parse($request->request_date)->locale('id')->translatedFormat('l, j F Y')
                 : '-';
             $statusLabel = $this->getStatusLabel($request->status);
+            $notes = $request->notes;
+
+            if ($request->rejection_note) {
+                $notesLines = [];
+                if ($notes) {
+                    $notesLines[] = e($notes);
+                }
+                $notesLines[] = '<span style="color:#dc2626;">Alasan penolakan: '
+                    . e($request->rejection_note)
+                    . '</span>';
+                $notes = ['value' => implode('<br />', $notesLines), 'raw' => true];
+            }
 
             if ($request->items->isEmpty()) {
                 $rows[] = [
@@ -192,25 +234,23 @@ class AtkRequestController extends Controller
                     $formattedDate,
                     $statusLabel,
                     '-',
-                    '-',
-                    '-',
-                    $request->notes,
+                    $notes,
                 ];
                 continue;
             }
 
-            foreach ($request->items as $item) {
-                $rows[] = [
-                    $request->requester_name,
-                    $request->requester_division,
-                    $formattedDate,
-                    $statusLabel,
-                    $item->item_name,
-                    $item->quantity,
-                    $item->unit,
-                    $request->notes,
-                ];
-            }
+            $itemsList = $request->items
+                ->map(fn ($item) => sprintf('%s (%s %s)', $item->item_name, $item->quantity, $item->unit))
+                ->implode(', ');
+
+            $rows[] = [
+                $request->requester_name,
+                $request->requester_division,
+                $formattedDate,
+                $statusLabel,
+                $itemsList !== '' ? $itemsList : '-',
+                $notes,
+            ];
         }
 
         $headerRow = $this->buildExcelHeaderRow($rows[0]);
@@ -237,7 +277,14 @@ class AtkRequestController extends Controller
     private function buildExcelBodyRow(array $row): string
     {
         $cells = collect($row)
-            ->map(fn ($value) => '<td style="border:1px solid #94a3b8;padding:6px;vertical-align:top;">' . e((string) $value) . '</td>')
+            ->map(function ($value) {
+                $isRaw = is_array($value) && ($value['raw'] ?? false);
+                $cellValue = $isRaw ? (string) ($value['value'] ?? '') : e((string) $value);
+
+                return '<td style="border:1px solid #94a3b8;padding:6px;vertical-align:top;white-space:pre-line;">'
+                    . $cellValue
+                    . '</td>';
+            })
             ->implode('');
 
         return '<tr>' . $cells . '</tr>';
@@ -284,20 +331,42 @@ class AtkRequestController extends Controller
 
     private function handleApprove(AtkRequest $atkRequest)
     {
-        $atkRequest->update(['status' => 'disetujui']);
+        if ($atkRequest->status !== 'menunggu') {
+            return response()->json(['message' => 'Permintaan hanya dapat disetujui saat status menunggu.'], 422);
+        }
+
+        $atkRequest->update([
+            'status' => 'disetujui',
+            'rejection_note' => null,
+        ]);
 
         return response()->json(['message' => 'Permintaan berhasil disetujui.']);
     }
 
-    private function handleReject(AtkRequest $atkRequest)
+    private function handleReject(AtkRequest $atkRequest, ?string $rejectionNote)
     {
-        $atkRequest->update(['status' => 'ditolak']);
+        if (! in_array($atkRequest->status, ['menunggu', 'disetujui'], true)) {
+            return response()->json(['message' => 'Permintaan hanya dapat ditolak saat status menunggu atau disetujui.'], 422);
+        }
+
+        if ($rejectionNote === null || trim($rejectionNote) === '') {
+            return response()->json(['message' => 'Alasan penolakan wajib diisi.'], 422);
+        }
+
+        $atkRequest->update([
+            'status' => 'ditolak',
+            'rejection_note' => $rejectionNote,
+        ]);
 
         return response()->json(['message' => 'Permintaan berhasil ditolak.']);
     }
 
     private function handleComplete(AtkRequest $atkRequest)
     {
+        if (! in_array($atkRequest->status, ['disetujui', 'ditolak'], true)) {
+            return response()->json(['message' => 'Permintaan hanya dapat diselesaikan setelah disetujui atau ditolak.'], 422);
+        }
+
         $atkRequest->update([
             'status' => $atkRequest->status === 'ditolak' ? 'selesai_ditolak' : 'selesai',
         ]);

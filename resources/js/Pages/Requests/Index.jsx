@@ -53,6 +53,8 @@ export default function Index({ requestsByStatus, items, units, statusCounts }) 
     });
     const [pin, setPin] = useState('');
     const [pinError, setPinError] = useState('');
+    const [rejectionNote, setRejectionNote] = useState('');
+    const [rejectionError, setRejectionError] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
 
     const totals = useMemo(
@@ -108,12 +110,16 @@ export default function Index({ requestsByStatus, items, units, statusCounts }) 
         setModalState({ isOpen: true, action, request });
         setPin('');
         setPinError('');
+        setRejectionNote('');
+        setRejectionError('');
     };
 
     const closePinModal = () => {
         setModalState({ isOpen: false, action: null, request: null });
         setPin('');
         setPinError('');
+        setRejectionNote('');
+        setRejectionError('');
         setIsProcessing(false);
     };
 
@@ -123,8 +129,14 @@ export default function Index({ requestsByStatus, items, units, statusCounts }) 
             return;
         }
 
+        if (modalState.action === 'reject' && !rejectionNote.trim()) {
+            setRejectionError('Alasan penolakan wajib diisi.');
+            return;
+        }
+
         setIsProcessing(true);
         setPinError('');
+        setRejectionError('');
 
         try {
             await window.axios.post(
@@ -132,6 +144,7 @@ export default function Index({ requestsByStatus, items, units, statusCounts }) 
                 {
                     admin_password: pin,
                     action: modalState.action,
+                    rejection_note: modalState.action === 'reject' ? rejectionNote : undefined,
                 },
                 {
                     headers: {
@@ -144,7 +157,11 @@ export default function Index({ requestsByStatus, items, units, statusCounts }) 
         } catch (error) {
             const message =
                 error?.response?.data?.message || 'Sandi admin tidak sesuai.';
-            setPinError(message);
+            if (modalState.action === 'reject' && message.toLowerCase().includes('penolakan')) {
+                setRejectionError(message);
+            } else {
+                setPinError(message);
+            }
             setIsProcessing(false);
         }
     };
@@ -197,7 +214,7 @@ export default function Index({ requestsByStatus, items, units, statusCounts }) 
                                 <option value="Fungsional Ahli">Fungsional Ahli</option>
                                 <option value="Business Support">Business Support</option>
                                 <option value="Operasi dan Pemeliharaan">Operasi dan Pemeliharaan</option>
-                                <option value="Engineering">Engineering</option>
+                                <option value="Enjiniring">Enjiniring</option>
                                 <option value="K3 dan Keamanan">K3 dan Keamanan</option>
                                 <option value="Lingkungan">Lingkungan</option>
                             </select>
@@ -352,8 +369,16 @@ export default function Index({ requestsByStatus, items, units, statusCounts }) 
                                             <span>{statusIcons[request.status] || 'ℹ️'}</span>
                                             {request.status_label}
                                         </p>
-                                        {request.notes && (
-                                            <p className="mt-2 text-sm text-slate-600">Catatan: {request.notes}</p>
+                                        {(request.notes || request.rejection_note) && (
+                                            <div className="mt-2 space-y-1 text-sm text-slate-600">
+                                                {request.notes && <p>Catatan: {request.notes}</p>}
+                                                {request.rejection_note &&
+                                                    ['ditolak', 'selesai_ditolak'].includes(request.status) && (
+                                                    <p className="text-red-600">
+                                                        Alasan penolakan: {request.rejection_note}
+                                                    </p>
+                                                )}
+                                            </div>
                                         )}
                                         <div className="mt-3">
                                             <p className="text-sm font-medium">Barang ATK:</p>
@@ -376,15 +401,15 @@ export default function Index({ requestsByStatus, items, units, statusCounts }) 
                                         {['approve', 'complete', 'reject', 'delete']
                                             .filter((action) => {
                                                 if (action === 'approve') {
-                                                    return !['disetujui', 'selesai', 'selesai_ditolak'].includes(request.status);
+                                                    return !['disetujui', 'selesai', 'selesai_ditolak', 'ditolak'].includes(request.status);
                                                 }
 
                                                 if (action === 'complete') {
-                                                    return !['selesai', 'selesai_ditolak'].includes(request.status);
+                                                    return ['disetujui', 'ditolak'].includes(request.status);
                                                 }
 
                                                 if (action === 'reject') {
-                                                    return !['ditolak', 'selesai_ditolak'].includes(request.status);
+                                                    return ['menunggu', 'disetujui'].includes(request.status);
                                                 }
 
                                                 return true;
@@ -416,6 +441,15 @@ export default function Index({ requestsByStatus, items, units, statusCounts }) 
                 onConfirm={handleConfirmPin}
                 error={pinError}
                 isProcessing={isProcessing}
+                showRejectionNote={modalState.action === 'reject'}
+                rejectionNote={rejectionNote}
+                rejectionError={rejectionError}
+                onRejectionNoteChange={(value) => {
+                    setRejectionNote(value);
+                    if (rejectionError) {
+                        setRejectionError('');
+                    }
+                }}
             />
         </AppLayout>
     );
